@@ -65,6 +65,13 @@ dispatch doctor
 
 ## Status
 
-Planning / Phase 0.
+Phase 1 local core is underway.
 
-The existing Go server code is legacy scaffold from the previous project direction. Phase 1 will replace it with package-first implementation slices for manifest generation, hashing, path safety, local content-addressed storage, and local publishing.
+The old backend scaffold has been removed. The current implementation includes:
+
+- Manifest v1 structs and validation.
+- Nested directory scanning with deterministic ordering.
+- SHA-256 hashing and content-addressed object keys.
+- Local filesystem storage backend.
+- Local publish orchestration.
+- A minimal `dispatch publish` CLI.
