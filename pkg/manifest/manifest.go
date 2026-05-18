@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -90,8 +91,8 @@ func Validate(m *Manifest) error {
 
 	seen := make(map[string]struct{}, len(m.Files))
 	for _, file := range m.Files {
-		if strings.TrimSpace(file.Path) == "" {
-			return errors.New("file path is required")
+		if err := validateFilePath(file.Path); err != nil {
+			return err
 		}
 		if _, exists := seen[file.Path]; exists {
 			return fmt.Errorf("duplicate file path %q", file.Path)
@@ -111,6 +112,31 @@ func Validate(m *Manifest) error {
 		if file.ObjectKey != expectedKey {
 			return fmt.Errorf("file %q object_key = %q, want %q", file.Path, file.ObjectKey, expectedKey)
 		}
+	}
+	return nil
+}
+
+func validateFilePath(filePath string) error {
+	trimmed := strings.TrimSpace(filePath)
+	if trimmed == "" {
+		return errors.New("file path is required")
+	}
+	if trimmed != filePath {
+		return fmt.Errorf("file path %q must not contain leading or trailing whitespace", filePath)
+	}
+	if strings.Contains(filePath, "\\") {
+		return fmt.Errorf("file path %q must use slash separators", filePath)
+	}
+	if strings.HasPrefix(filePath, "/") {
+		return fmt.Errorf("file path %q must be relative", filePath)
+	}
+
+	cleaned := path.Clean(filePath)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return fmt.Errorf("file path %q must stay within the install root", filePath)
+	}
+	if cleaned != filePath {
+		return fmt.Errorf("file path %q must be clean", filePath)
 	}
 	return nil
 }

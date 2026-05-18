@@ -68,3 +68,41 @@ func TestValidateRejectsDuplicatePath(t *testing.T) {
 		t.Fatal("expected duplicate path error")
 	}
 }
+
+func TestValidateRejectsUnsafeFilePaths(t *testing.T) {
+	key, err := ObjectKeyForHash(testHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invalid := []string{
+		"",
+		".",
+		"../game.exe",
+		"bin/../../game.exe",
+		"/game.exe",
+		"bin\\game.exe",
+		"bin//game.exe",
+		"bin/./game.exe",
+	}
+	for _, path := range invalid {
+		m := &Manifest{
+			FormatVersion:   FormatVersion,
+			AppID:           "com.example.game",
+			Version:         "1.0.0",
+			Channel:         "stable",
+			ReleaseSequence: 1,
+			PublishedAt:     time.Unix(100, 0).UTC(),
+			Files: []File{{
+				Path:      path,
+				Size:      5,
+				SHA256:    testHash,
+				ObjectKey: key,
+			}},
+		}
+
+		if err := Validate(m); err == nil {
+			t.Fatalf("Validate accepted unsafe path %q", path)
+		}
+	}
+}

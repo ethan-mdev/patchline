@@ -23,6 +23,7 @@ type Config struct {
 	InstallDir          string
 	LastReleaseSequence int64
 	HTTPClient          *http.Client
+	ManifestVerifier    ManifestVerifier
 }
 
 type Client struct {
@@ -32,6 +33,7 @@ type Client struct {
 	installDir          string
 	lastReleaseSequence int64
 	httpClient          *http.Client
+	manifestVerifier    ManifestVerifier
 }
 
 type Plan struct {
@@ -43,6 +45,16 @@ type Plan struct {
 type FileUpdate struct {
 	File   manifest.File `json:"file"`
 	Reason string        `json:"reason"`
+}
+
+type ManifestVerifier interface {
+	VerifyManifest(ctx context.Context, data []byte) error
+}
+
+type ManifestVerifierFunc func(ctx context.Context, data []byte) error
+
+func (f ManifestVerifierFunc) VerifyManifest(ctx context.Context, data []byte) error {
+	return f(ctx, data)
 }
 
 func New(cfg Config) (*Client, error) {
@@ -74,6 +86,7 @@ func New(cfg Config) (*Client, error) {
 		installDir:          filepath.Clean(cfg.InstallDir),
 		lastReleaseSequence: cfg.LastReleaseSequence,
 		httpClient:          httpClient,
+		manifestVerifier:    cfg.ManifestVerifier,
 	}, nil
 }
 
@@ -91,8 +104,18 @@ func (c *Client) FetchChannelManifest(ctx context.Context) (*manifest.Manifest, 
 		return nil, fmt.Errorf("fetch channel manifest: status %d", resp.StatusCode)
 	}
 
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if c.manifestVerifier != nil {
+		if err := c.manifestVerifier.VerifyManifest(ctx, data); err != nil {
+			return nil, err
+		}
+	}
+
 	var m manifest.Manifest
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("decode channel manifest: %w", err)
 	}
 	if err := c.validateManifest(&m); err != nil {

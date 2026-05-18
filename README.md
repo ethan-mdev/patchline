@@ -33,10 +33,12 @@ Implemented:
 - `patchline publish`
 - `patchline apply`
 - Go client primitives for fetching, planning, and applying updates
+- Optional client manifest verifier hook for signing integration
+- Runnable local apply example under `examples/local_apply`
 
 Not implemented yet:
 
-- Manifest signing and verification
+- Manifest signing and built-in signature verification
 - S3-compatible storage backend
 - Channel promotion, rollback, garbage collection, and doctor commands
 - Configuration file support
@@ -71,6 +73,12 @@ go run ./cmd/patchline apply `
 ```
 
 Use `--json` on publish or apply for machine-readable output.
+
+There is also a runnable end-to-end example:
+
+```powershell
+go run ./examples/local_apply
+```
 
 ## Storage Layout
 

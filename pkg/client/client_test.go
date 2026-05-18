@@ -2,13 +2,16 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/ethan-mdev/patchline/pkg/manifest"
 	"github.com/ethan-mdev/patchline/pkg/publisher"
 	localstorage "github.com/ethan-mdev/patchline/pkg/storage/local"
 )
@@ -108,6 +111,75 @@ func TestClientRejectsOldReleaseSequence(t *testing.T) {
 	}
 }
 
+func TestFetchChannelManifestUsesVerifier(t *testing.T) {
+	ctx := context.Background()
+	buildDir := t.TempDir()
+	releaseDir := t.TempDir()
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(buildDir, "Game.bin"), "game")
+
+	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
+		AppID:           "com.example.game",
+		Version:         "1.0.0",
+		Channel:         "beta",
+		ReleaseSequence: 1,
+		PublishedAt:     time.Unix(100, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.FileServer(http.Dir(releaseDir)))
+	defer server.Close()
+
+	called := false
+	c, err := New(Config{
+		AppID:      "com.example.game",
+		Channel:    "beta",
+		BaseURL:    server.URL,
+		InstallDir: installDir,
+		ManifestVerifier: ManifestVerifierFunc(func(ctx context.Context, data []byte) error {
+			called = true
+			if len(data) == 0 {
+				t.Fatal("verifier received empty manifest")
+			}
+			return nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.FetchChannelManifest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("expected verifier to be called")
+	}
+}
+
+func TestFetchChannelManifestStopsOnVerifierError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"not":"trusted"}`))
+	}))
+	defer server.Close()
+
+	c, err := New(Config{
+		AppID:      "com.example.game",
+		Channel:    "beta",
+		BaseURL:    server.URL,
+		InstallDir: t.TempDir(),
+		ManifestVerifier: ManifestVerifierFunc(func(ctx context.Context, data []byte) error {
+			return context.Canceled
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.FetchChannelManifest(context.Background()); err == nil {
+		t.Fatal("expected verifier error")
+	}
+}
+
 func TestApplyRejectsHashMismatchWithoutReplacingExistingFile(t *testing.T) {
 	ctx := context.Background()
 	buildDir := t.TempDir()
@@ -159,6 +231,148 @@ func TestApplyRejectsHashMismatchWithoutReplacingExistingFile(t *testing.T) {
 		t.Fatal("expected hash mismatch")
 	}
 	assertFileContent(t, filepath.Join(installDir, "Game.bin"), "old-game")
+	assertNoPatchlineTempFiles(t, installDir)
+}
+
+func TestFetchRejectsUnsafeManifestPath(t *testing.T) {
+	key, err := manifest.ObjectKeyForHash("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := manifest.Manifest{
+		FormatVersion:   manifest.FormatVersion,
+		AppID:           "com.example.game",
+		Version:         "1.0.0",
+		Channel:         "beta",
+		ReleaseSequence: 1,
+		PublishedAt:     time.Unix(100, 0).UTC(),
+		Files: []manifest.File{{
+			Path:      "../Game.bin",
+			Size:      5,
+			SHA256:    "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+			ObjectKey: key,
+		}},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(data)
+	}))
+	defer server.Close()
+
+	c, err := New(Config{
+		AppID:      "com.example.game",
+		Channel:    "beta",
+		BaseURL:    server.URL,
+		InstallDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.FetchChannelManifest(context.Background()); err == nil {
+		t.Fatal("expected unsafe path error")
+	}
+}
+
+func TestApplyDownloadFailureKeepsExistingFileAndCleansTempFile(t *testing.T) {
+	ctx := context.Background()
+	buildDir := t.TempDir()
+	releaseDir := t.TempDir()
+	installDir := t.TempDir()
+	writeFile(t, filepath.Join(buildDir, "Game.bin"), "new-game")
+	writeFile(t, filepath.Join(installDir, "Game.bin"), "old-game")
+
+	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
+		AppID:           "com.example.game",
+		Version:         "1.0.0",
+		Channel:         "beta",
+		ReleaseSequence: 1,
+		PublishedAt:     time.Unix(100, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/objects/") {
+			http.NotFound(w, r)
+			return
+		}
+		http.FileServer(http.Dir(releaseDir)).ServeHTTP(w, r)
+	}))
+	defer server.Close()
+
+	c, err := New(Config{
+		AppID:      "com.example.game",
+		Channel:    "beta",
+		BaseURL:    server.URL,
+		InstallDir: installDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := c.FetchChannelManifest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := c.Plan(ctx, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Apply(ctx, plan); err == nil {
+		t.Fatal("expected download failure")
+	}
+	assertFileContent(t, filepath.Join(installDir, "Game.bin"), "old-game")
+	assertNoPatchlineTempFiles(t, installDir)
+}
+
+func TestApplyCreatesInstallDirectory(t *testing.T) {
+	ctx := context.Background()
+	buildDir := t.TempDir()
+	releaseDir := t.TempDir()
+	installRoot := t.TempDir()
+	installDir := filepath.Join(installRoot, "missing-install")
+	writeFile(t, filepath.Join(buildDir, "Game.bin"), "game")
+
+	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
+		AppID:           "com.example.game",
+		Version:         "1.0.0",
+		Channel:         "beta",
+		ReleaseSequence: 1,
+		PublishedAt:     time.Unix(100, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.FileServer(http.Dir(releaseDir)))
+	defer server.Close()
+
+	c, err := New(Config{
+		AppID:      "com.example.game",
+		Channel:    "beta",
+		BaseURL:    server.URL,
+		InstallDir: installDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := c.FetchChannelManifest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := c.Plan(ctx, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Apply(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContent(t, filepath.Join(installDir, "Game.bin"), "game")
 }
 
 func writeFile(t *testing.T, path string, content string) {
@@ -179,5 +393,21 @@ func assertFileContent(t *testing.T, path string, want string) {
 	}
 	if string(data) != want {
 		t.Fatalf("%s = %q, want %q", path, string(data), want)
+	}
+}
+
+func assertNoPatchlineTempFiles(t *testing.T, root string) {
+	t.Helper()
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), ".patchline-download-") {
+			t.Fatalf("temporary file was not cleaned up: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
