@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethan-mdev/dispatch/pkg/manifest"
-	localstorage "github.com/ethan-mdev/dispatch/pkg/storage/local"
+	"github.com/ethan-mdev/patchline/pkg/manifest"
+	localstorage "github.com/ethan-mdev/patchline/pkg/storage/local"
 )
 
 func TestPublishWritesLocalContentAddressedRelease(t *testing.T) {

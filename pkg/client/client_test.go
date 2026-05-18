@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethan-mdev/dispatch/pkg/publisher"
-	localstorage "github.com/ethan-mdev/dispatch/pkg/storage/local"
+	"github.com/ethan-mdev/patchline/pkg/publisher"
+	localstorage "github.com/ethan-mdev/patchline/pkg/storage/local"
 )
 
 func TestClientPlansAndAppliesUpdate(t *testing.T) {

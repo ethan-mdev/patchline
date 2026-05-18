@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ethan-mdev/dispatch/pkg/manifest"
-	"github.com/ethan-mdev/dispatch/pkg/patch"
+	"github.com/ethan-mdev/patchline/pkg/manifest"
+	"github.com/ethan-mdev/patchline/pkg/patch"
 )
 
 type Config struct {
@@ -177,7 +177,7 @@ func (c *Client) applyFile(ctx context.Context, file manifest.File) error {
 		return err
 	}
 
-	tempFile, err := os.CreateTemp(filepath.Dir(localPath), ".dispatch-download-*")
+	tempFile, err := os.CreateTemp(filepath.Dir(localPath), ".patchline-download-*")
 	if err != nil {
 		return err
 	}

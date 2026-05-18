@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ethan-mdev/dispatch/pkg/manifest"
+	"github.com/ethan-mdev/patchline/pkg/manifest"
 )
 
 type Backend struct {
@@ -134,7 +134,7 @@ func writeFileAtomic(path string, data io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	tempFile, err := os.CreateTemp(filepath.Dir(path), ".dispatch-*")
+	tempFile, err := os.CreateTemp(filepath.Dir(path), ".patchline-*")
 	if err != nil {
 		return err
 	}

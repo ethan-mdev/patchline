@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ethan-mdev/dispatch/pkg/manifest"
-	"github.com/ethan-mdev/dispatch/pkg/patch"
-	"github.com/ethan-mdev/dispatch/pkg/storage"
+	"github.com/ethan-mdev/patchline/pkg/manifest"
+	"github.com/ethan-mdev/patchline/pkg/patch"
+	"github.com/ethan-mdev/patchline/pkg/storage"
 )
 
 type Options struct {

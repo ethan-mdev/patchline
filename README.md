@@ -1,77 +1,105 @@
-# Dispatch
+# Patchline
 
-Dispatch is a planned open-source patch publishing and update toolkit for indie games and desktop applications.
+Patchline is a Go CLI and library for publishing and applying static file updates for games and desktop apps.
 
-The project is being reset from an older backend scaffold into a CLI and Go library that developers can plug into their own launcher, installer, bootstrapper, or custom update flow. The current source of truth is [files/patching_platform_handoff.md](files/patching_platform_handoff.md).
+It scans a build directory, stores files by content hash, writes release and channel manifests, and gives clients enough information to repair or update an install directory from ordinary static hosting.
 
-## Goal
+Patchline is early, but the local core is usable: you can publish a build to a local release directory and apply that release from an HTTP file server.
 
-Dispatch should make it practical for small teams to ship signed updates without running a custom patch server.
+## Why
 
-The intended v1 shape:
+Small teams often need a reliable update path before they need a full launcher, hosted patch service, or package-manager-grade update framework. Patchline focuses on the patching substrate:
 
-- Publisher CLI for local and CI/CD release workflows.
-- Signed release and channel manifests.
-- Content-addressed file storage.
-- Local and S3-compatible publishing backends.
-- Go client primitives for planning and applying updates.
-- Operational docs for rollback, promotion, cleanup, and deployment.
+- deterministic build scanning
+- SHA-256 file hashing
+- content-addressed object storage
+- versioned release manifests
+- mutable channel manifests
+- client-side update planning
+- hash verification before files are installed
+- atomic replacement of changed files
 
-## Non-goals
+Applications keep control of their own UI, auth, launch behavior, installation flow, and product-specific decisions.
 
-Dispatch is not:
+## Current Status
 
-- A launcher generator.
-- An admin dashboard.
-- A hosted SaaS.
-- A user/account/entitlement system.
-- A game installer.
-- A TUF replacement.
+Implemented:
 
-Applications remain responsible for their own UX, auth, game launch behavior, installer strategy, and product-specific workflow. Dispatch owns the patching substrate.
+- Manifest v1 structs and validation
+- Nested directory scanning with deterministic ordering
+- SHA-256 hashing and content-addressed object keys
+- Local filesystem storage backend
+- Local publish orchestration
+- `patchline publish`
+- `patchline apply`
+- Go client primitives for fetching, planning, and applying updates
 
-## Why not TUF?
+Not implemented yet:
 
-TUF is the right tool for ecosystems that need delegated trust, root metadata, threshold signatures, formal key rotation, and package-manager-grade supply-chain guarantees.
+- Manifest signing and verification
+- S3-compatible storage backend
+- Channel promotion, rollback, garbage collection, and doctor commands
+- Configuration file support
 
-Dispatch aims at a smaller threat model: signed manifests, immutable file objects, hash verification, channel promotion/rollback, and static hosting for indie-scale desktop apps. Projects that need TUF's full compromise-recovery model should use TUF or a TUF-based updater.
+## Quick Start
 
-## Planned Storage Layout
+Publish a build directory:
 
-Dispatch v1 should use content-addressed storage from day one:
+```powershell
+go run ./cmd/patchline publish `
+  --app-id com.example.game `
+  --version 1.0.0 `
+  --channel beta `
+  --output ./release-output `
+  ./dist
+```
+
+Serve the published release directory:
+
+```powershell
+python -m http.server 8080 --directory ./release-output
+```
+
+Apply the beta channel into an install directory:
+
+```powershell
+go run ./cmd/patchline apply `
+  --app-id com.example.game `
+  --channel beta `
+  --base-url http://localhost:8080 `
+  --install-dir ./install
+```
+
+Use `--json` on publish or apply for machine-readable output.
+
+## Storage Layout
+
+Patchline publishes releases as static files:
 
 ```text
 objects/sha256/ab/cd/<hash>
-releases/1.2.3/manifest.json
-channels/stable/manifest.json
+releases/1.0.0/manifest.json
+channels/beta/manifest.json
 ```
 
-Manifests map application paths such as `bin/game.exe` to immutable object keys. This gives cheap deduplication, straightforward garbage collection, and clean cache behavior.
+Objects are immutable and addressed by SHA-256. Release manifests are versioned snapshots. Channel manifests are movable pointers that tell clients which release is current for a channel such as `beta` or `stable`.
 
-## Planned CLI
+## Library Usage
 
-Candidate commands:
+The CLI is a thin wrapper around Go packages under `pkg/`:
 
-```text
-dispatch init
-dispatch scan ./build
-dispatch publish ./build --version 1.2.3 --channel beta
-dispatch promote 1.2.3 --from beta --to stable
-dispatch rollback --channel stable --to 1.2.2
-dispatch verify --channel stable
-dispatch gc --keep 5
-dispatch doctor
+- `pkg/manifest` defines release metadata and object keys.
+- `pkg/patch` scans directories and hashes files.
+- `pkg/publisher` publishes a build through a storage backend.
+- `pkg/storage` defines backend interfaces.
+- `pkg/client` fetches manifests, builds update plans, and applies changed files.
+
+## Development
+
+Run the test suite:
+
+```powershell
+go test ./...
 ```
 
-## Status
-
-Phase 1 local core is underway.
-
-The old backend scaffold has been removed. The current implementation includes:
-
-- Manifest v1 structs and validation.
-- Nested directory scanning with deterministic ordering.
-- SHA-256 hashing and content-addressed object keys.
-- Local filesystem storage backend.
-- Local publish orchestration.
-- A minimal `dispatch publish` CLI.
+Patchline currently targets local development first. The next major pieces are signed manifests, S3-compatible publishing, and the operational commands needed for real release workflows.

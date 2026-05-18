@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ethan-mdev/dispatch/pkg/client"
-	"github.com/ethan-mdev/dispatch/pkg/publisher"
-	localstorage "github.com/ethan-mdev/dispatch/pkg/storage/local"
+	"github.com/ethan-mdev/patchline/pkg/client"
+	"github.com/ethan-mdev/patchline/pkg/publisher"
+	localstorage "github.com/ethan-mdev/patchline/pkg/storage/local"
 )
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "dispatch:", err)
+		fmt.Fprintln(os.Stderr, "patchline:", err)
 		os.Exit(1)
 	}
 }
@@ -48,7 +48,7 @@ func publish(args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: dispatch publish [flags] <build-dir>")
+		return fmt.Errorf("usage: patchline publish [flags] <build-dir>")
 	}
 
 	result, err := publisher.Publish(context.Background(), localstorage.New(*output), flags.Arg(0), publisher.Options{
@@ -82,7 +82,7 @@ func apply(args []string) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return fmt.Errorf("usage: dispatch apply [flags]")
+		return fmt.Errorf("usage: patchline apply [flags]")
 	}
 
 	c, err := client.New(client.Config{
@@ -118,10 +118,10 @@ func apply(args []string) error {
 }
 
 func usage() error {
-	fmt.Fprintln(os.Stderr, "usage: dispatch <command> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: patchline <command> [flags]")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  apply      apply updates from a static Dispatch release")
+	fmt.Fprintln(os.Stderr, "  apply      apply updates from a static Patchline release")
 	fmt.Fprintln(os.Stderr, "  publish    publish a build directory to local content-addressed storage")
 	return nil
 }
