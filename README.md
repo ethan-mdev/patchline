@@ -13,9 +13,11 @@ Small teams often need a reliable update path before they need a full launcher, 
 - deterministic build scanning
 - SHA-256 file hashing
 - content-addressed object storage
+- Ed25519 manifest signing
 - versioned release manifests
 - mutable channel manifests
 - client-side update planning
+- manifest signature verification
 - hash verification before files are installed
 - atomic replacement of changed files
 
@@ -30,20 +32,28 @@ Implemented:
 - SHA-256 hashing and content-addressed object keys
 - Local filesystem storage backend
 - Local publish orchestration
+- Ed25519 key generation, manifest signing, and verification
+- `patchline keygen`
 - `patchline publish`
 - `patchline apply`
 - Go client primitives for fetching, planning, and applying updates
-- Optional client manifest verifier hook for signing integration
 - Runnable local apply example under `examples/local_apply`
 
 Not implemented yet:
 
-- Manifest signing and built-in signature verification
 - S3-compatible storage backend
 - Channel promotion, rollback, garbage collection, and doctor commands
 - Configuration file support
 
 ## Quick Start
+
+Generate an Ed25519 signing keypair:
+
+```powershell
+go run ./cmd/patchline keygen `
+  --private-out ./patchline.key `
+  --public-out ./patchline.pub
+```
 
 Publish a build directory:
 
@@ -53,6 +63,7 @@ go run ./cmd/patchline publish `
   --version 1.0.0 `
   --channel beta `
   --output ./release-output `
+  --signing-key ./patchline.key `
   ./dist
 ```
 
@@ -69,10 +80,11 @@ go run ./cmd/patchline apply `
   --app-id com.example.game `
   --channel beta `
   --base-url http://localhost:8080 `
+  --public-key ./patchline.pub `
   --install-dir ./install
 ```
 
-Use `--json` on publish or apply for machine-readable output.
+Use `--json` on keygen, publish, or apply for machine-readable output. Unsigned manifests are rejected by default; use `--unsigned-dev` only for local development.
 
 There is also a runnable end-to-end example:
 
@@ -101,6 +113,7 @@ The CLI is a thin wrapper around Go packages under `pkg/`:
 - `pkg/publisher` publishes a build through a storage backend.
 - `pkg/storage` defines backend interfaces.
 - `pkg/client` fetches manifests, builds update plans, and applies changed files.
+- `pkg/signing` generates Ed25519 keys and signs/verifies manifests.
 
 ## Development
 
@@ -110,4 +123,4 @@ Run the test suite:
 go test ./...
 ```
 
-Patchline currently targets local development first. The next major pieces are signed manifests, S3-compatible publishing, and the operational commands needed for real release workflows.
+Patchline currently targets local development first. The next major pieces are S3-compatible publishing and the operational commands needed for real release workflows.

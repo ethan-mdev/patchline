@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethan-mdev/patchline/pkg/manifest"
 	"github.com/ethan-mdev/patchline/pkg/publisher"
+	"github.com/ethan-mdev/patchline/pkg/signing"
 	localstorage "github.com/ethan-mdev/patchline/pkg/storage/local"
 )
 
@@ -25,6 +26,7 @@ func TestClientPlansAndAppliesUpdate(t *testing.T) {
 	writeFile(t, filepath.Join(buildDir, "Game.bin"), "new-game")
 	writeFile(t, filepath.Join(buildDir, "res", "ui", "hud.dat"), "hud")
 	writeFile(t, filepath.Join(installDir, "Game.bin"), "old-game")
+	signer, verifier := testSignerVerifier(t)
 
 	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
 		AppID:           "com.example.game",
@@ -32,6 +34,7 @@ func TestClientPlansAndAppliesUpdate(t *testing.T) {
 		Channel:         "beta",
 		ReleaseSequence: 1,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          signer,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -40,10 +43,11 @@ func TestClientPlansAndAppliesUpdate(t *testing.T) {
 	defer server.Close()
 
 	c, err := New(Config{
-		AppID:      "com.example.game",
-		Channel:    "beta",
-		BaseURL:    server.URL,
-		InstallDir: installDir,
+		AppID:            "com.example.game",
+		Channel:          "beta",
+		BaseURL:          server.URL,
+		InstallDir:       installDir,
+		ManifestVerifier: verifier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +86,7 @@ func TestClientRejectsOldReleaseSequence(t *testing.T) {
 	releaseDir := t.TempDir()
 	installDir := t.TempDir()
 	writeFile(t, filepath.Join(buildDir, "Game.bin"), "game")
+	signer, verifier := testSignerVerifier(t)
 
 	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
 		AppID:           "com.example.game",
@@ -89,6 +94,7 @@ func TestClientRejectsOldReleaseSequence(t *testing.T) {
 		Channel:         "stable",
 		ReleaseSequence: 3,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          signer,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +107,7 @@ func TestClientRejectsOldReleaseSequence(t *testing.T) {
 		BaseURL:             server.URL,
 		InstallDir:          installDir,
 		LastReleaseSequence: 3,
+		ManifestVerifier:    verifier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +124,7 @@ func TestFetchChannelManifestUsesVerifier(t *testing.T) {
 	releaseDir := t.TempDir()
 	installDir := t.TempDir()
 	writeFile(t, filepath.Join(buildDir, "Game.bin"), "game")
+	signer, _ := testSignerVerifier(t)
 
 	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
 		AppID:           "com.example.game",
@@ -124,6 +132,7 @@ func TestFetchChannelManifestUsesVerifier(t *testing.T) {
 		Channel:         "beta",
 		ReleaseSequence: 1,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          signer,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -187,6 +196,7 @@ func TestApplyRejectsHashMismatchWithoutReplacingExistingFile(t *testing.T) {
 	installDir := t.TempDir()
 	writeFile(t, filepath.Join(buildDir, "Game.bin"), "new-game")
 	writeFile(t, filepath.Join(installDir, "Game.bin"), "old-game")
+	signer, verifier := testSignerVerifier(t)
 
 	result, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
 		AppID:           "com.example.game",
@@ -194,6 +204,7 @@ func TestApplyRejectsHashMismatchWithoutReplacingExistingFile(t *testing.T) {
 		Channel:         "beta",
 		ReleaseSequence: 1,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          signer,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -210,10 +221,11 @@ func TestApplyRejectsHashMismatchWithoutReplacingExistingFile(t *testing.T) {
 	defer server.Close()
 
 	c, err := New(Config{
-		AppID:      "com.example.game",
-		Channel:    "beta",
-		BaseURL:    server.URL,
-		InstallDir: installDir,
+		AppID:            "com.example.game",
+		Channel:          "beta",
+		BaseURL:          server.URL,
+		InstallDir:       installDir,
+		ManifestVerifier: verifier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -264,10 +276,11 @@ func TestFetchRejectsUnsafeManifestPath(t *testing.T) {
 	defer server.Close()
 
 	c, err := New(Config{
-		AppID:      "com.example.game",
-		Channel:    "beta",
-		BaseURL:    server.URL,
-		InstallDir: t.TempDir(),
+		AppID:            "com.example.game",
+		Channel:          "beta",
+		BaseURL:          server.URL,
+		InstallDir:       t.TempDir(),
+		AllowUnsignedDev: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -285,6 +298,7 @@ func TestApplyDownloadFailureKeepsExistingFileAndCleansTempFile(t *testing.T) {
 	installDir := t.TempDir()
 	writeFile(t, filepath.Join(buildDir, "Game.bin"), "new-game")
 	writeFile(t, filepath.Join(installDir, "Game.bin"), "old-game")
+	signer, verifier := testSignerVerifier(t)
 
 	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
 		AppID:           "com.example.game",
@@ -292,6 +306,7 @@ func TestApplyDownloadFailureKeepsExistingFileAndCleansTempFile(t *testing.T) {
 		Channel:         "beta",
 		ReleaseSequence: 1,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          signer,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -306,10 +321,11 @@ func TestApplyDownloadFailureKeepsExistingFileAndCleansTempFile(t *testing.T) {
 	defer server.Close()
 
 	c, err := New(Config{
-		AppID:      "com.example.game",
-		Channel:    "beta",
-		BaseURL:    server.URL,
-		InstallDir: installDir,
+		AppID:            "com.example.game",
+		Channel:          "beta",
+		BaseURL:          server.URL,
+		InstallDir:       installDir,
+		ManifestVerifier: verifier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -337,6 +353,7 @@ func TestApplyCreatesInstallDirectory(t *testing.T) {
 	installRoot := t.TempDir()
 	installDir := filepath.Join(installRoot, "missing-install")
 	writeFile(t, filepath.Join(buildDir, "Game.bin"), "game")
+	signer, verifier := testSignerVerifier(t)
 
 	if _, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
 		AppID:           "com.example.game",
@@ -344,6 +361,7 @@ func TestApplyCreatesInstallDirectory(t *testing.T) {
 		Channel:         "beta",
 		ReleaseSequence: 1,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          signer,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -352,10 +370,11 @@ func TestApplyCreatesInstallDirectory(t *testing.T) {
 	defer server.Close()
 
 	c, err := New(Config{
-		AppID:      "com.example.game",
-		Channel:    "beta",
-		BaseURL:    server.URL,
-		InstallDir: installDir,
+		AppID:            "com.example.game",
+		Channel:          "beta",
+		BaseURL:          server.URL,
+		InstallDir:       installDir,
+		ManifestVerifier: verifier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -410,4 +429,21 @@ func assertNoPatchlineTempFiles(t *testing.T, root string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func testSignerVerifier(t *testing.T) (*signing.Signer, *signing.Verifier) {
+	t.Helper()
+	pair, err := signing.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := signing.NewSigner(pair.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := signing.NewVerifier(pair.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer, verifier
 }

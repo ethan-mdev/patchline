@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -114,6 +115,15 @@ func Validate(m *Manifest) error {
 		}
 	}
 	return nil
+}
+
+func CanonicalBytes(m *Manifest) ([]byte, error) {
+	if err := Validate(m); err != nil {
+		return nil, err
+	}
+	unsigned := *m
+	unsigned.Signature = nil
+	return json.Marshal(unsigned)
 }
 
 func validateFilePath(filePath string) error {

@@ -24,6 +24,7 @@ type Config struct {
 	LastReleaseSequence int64
 	HTTPClient          *http.Client
 	ManifestVerifier    ManifestVerifier
+	AllowUnsignedDev    bool
 }
 
 type Client struct {
@@ -34,6 +35,7 @@ type Client struct {
 	lastReleaseSequence int64
 	httpClient          *http.Client
 	manifestVerifier    ManifestVerifier
+	allowUnsignedDev    bool
 }
 
 type Plan struct {
@@ -78,6 +80,9 @@ func New(cfg Config) (*Client, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	if cfg.ManifestVerifier == nil && !cfg.AllowUnsignedDev {
+		return nil, errors.New("manifest verifier is required")
+	}
 
 	return &Client{
 		appID:               cfg.AppID,
@@ -87,6 +92,7 @@ func New(cfg Config) (*Client, error) {
 		lastReleaseSequence: cfg.LastReleaseSequence,
 		httpClient:          httpClient,
 		manifestVerifier:    cfg.ManifestVerifier,
+		allowUnsignedDev:    cfg.AllowUnsignedDev,
 	}, nil
 }
 

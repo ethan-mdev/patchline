@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethan-mdev/patchline/pkg/client"
 	"github.com/ethan-mdev/patchline/pkg/publisher"
+	"github.com/ethan-mdev/patchline/pkg/signing"
 	localstorage "github.com/ethan-mdev/patchline/pkg/storage/local"
 )
 
@@ -42,6 +43,18 @@ func run() error {
 	if err := writeFile(filepath.Join(installDir, "Game.bin"), "old-game"); err != nil {
 		return err
 	}
+	keys, err := signing.GenerateKeyPair()
+	if err != nil {
+		return err
+	}
+	signer, err := signing.NewSigner(keys.PrivateKey)
+	if err != nil {
+		return err
+	}
+	verifier, err := signing.NewVerifier(keys.PublicKey)
+	if err != nil {
+		return err
+	}
 
 	result, err := publisher.Publish(ctx, localstorage.New(releaseDir), buildDir, publisher.Options{
 		AppID:           "com.example.game",
@@ -49,6 +62,7 @@ func run() error {
 		Channel:         "beta",
 		ReleaseSequence: 1,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          signer,
 	})
 	if err != nil {
 		return err
@@ -58,10 +72,11 @@ func run() error {
 	defer server.Close()
 
 	c, err := client.New(client.Config{
-		AppID:      "com.example.game",
-		Channel:    "beta",
-		BaseURL:    server.URL,
-		InstallDir: installDir,
+		AppID:            "com.example.game",
+		Channel:          "beta",
+		BaseURL:          server.URL,
+		InstallDir:       installDir,
+		ManifestVerifier: verifier,
 	})
 	if err != nil {
 		return err

@@ -21,12 +21,18 @@ type Options struct {
 	Channel         string
 	PublishedAt     time.Time
 	ReleaseSequence int64
+	Signer          ManifestSigner
+	UnsignedDev     bool
 }
 
 type Result struct {
 	Manifest        *manifest.Manifest
 	ObjectsUploaded int
 	ObjectsReused   int
+}
+
+type ManifestSigner interface {
+	SignManifest(ctx context.Context, m *manifest.Manifest) error
 }
 
 func Publish(ctx context.Context, backend storage.Backend, buildDir string, opts Options) (*Result, error) {
@@ -104,6 +110,14 @@ func Publish(ctx context.Context, backend storage.Backend, buildDir string, opts
 	}
 	if err := manifest.Validate(m); err != nil {
 		return nil, err
+	}
+	if opts.Signer == nil && !opts.UnsignedDev {
+		return nil, errors.New("manifest signer is required")
+	}
+	if opts.Signer != nil {
+		if err := opts.Signer.SignManifest(ctx, m); err != nil {
+			return nil, err
+		}
 	}
 
 	data, err := json.MarshalIndent(m, "", "  ")

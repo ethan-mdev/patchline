@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ethan-mdev/patchline/pkg/manifest"
+	"github.com/ethan-mdev/patchline/pkg/signing"
 	localstorage "github.com/ethan-mdev/patchline/pkg/storage/local"
 )
 
@@ -24,6 +25,7 @@ func TestPublishWritesLocalContentAddressedRelease(t *testing.T) {
 		Channel:         "beta",
 		ReleaseSequence: 1,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          testSigner(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,6 +51,9 @@ func TestPublishWritesLocalContentAddressedRelease(t *testing.T) {
 	if channelManifest.Version != "1.0.0" || channelManifest.ReleaseSequence != 1 {
 		t.Fatalf("channel manifest = %#v", channelManifest)
 	}
+	if channelManifest.Signature == nil {
+		t.Fatal("expected signed channel manifest")
+	}
 }
 
 func TestPublishReusesExistingObjectsAndIncrementsSequence(t *testing.T) {
@@ -63,6 +68,7 @@ func TestPublishReusesExistingObjectsAndIncrementsSequence(t *testing.T) {
 		Channel:         "stable",
 		ReleaseSequence: 7,
 		PublishedAt:     time.Unix(100, 0).UTC(),
+		Signer:          testSigner(t),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +78,7 @@ func TestPublishReusesExistingObjectsAndIncrementsSequence(t *testing.T) {
 		Version:     "1.0.1",
 		Channel:     "stable",
 		PublishedAt: time.Unix(200, 0).UTC(),
+		Signer:      testSigner(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +89,37 @@ func TestPublishReusesExistingObjectsAndIncrementsSequence(t *testing.T) {
 	}
 	if result.Manifest.ReleaseSequence != 8 {
 		t.Fatalf("release_sequence = %d, want 8", result.Manifest.ReleaseSequence)
+	}
+}
+
+func TestPublishRequiresSignerUnlessUnsignedDev(t *testing.T) {
+	buildDir := t.TempDir()
+	writeFile(t, filepath.Join(buildDir, "Game.bin"), "game")
+
+	_, err := Publish(context.Background(), localstorage.New(t.TempDir()), buildDir, Options{
+		AppID:           "com.example.game",
+		Version:         "1.0.0",
+		Channel:         "beta",
+		ReleaseSequence: 1,
+		PublishedAt:     time.Unix(100, 0).UTC(),
+	})
+	if err == nil {
+		t.Fatal("expected missing signer error")
+	}
+
+	result, err := Publish(context.Background(), localstorage.New(t.TempDir()), buildDir, Options{
+		AppID:           "com.example.game",
+		Version:         "1.0.0",
+		Channel:         "beta",
+		ReleaseSequence: 1,
+		PublishedAt:     time.Unix(100, 0).UTC(),
+		UnsignedDev:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Manifest.Signature != nil {
+		t.Fatal("unsigned dev publish should not attach a signature")
 	}
 }
 
@@ -113,4 +151,17 @@ func writeFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func testSigner(t *testing.T) *signing.Signer {
+	t.Helper()
+	pair, err := signing.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := signing.NewSigner(pair.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer
 }
