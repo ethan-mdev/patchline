@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,6 +48,8 @@ type FileUpdate struct {
 	Reason string        `json:"reason"`
 }
 
+// ManifestVerifier verifies an envelope's signature against its payload bytes.
+// The input is the raw envelope as fetched from storage.
 type ManifestVerifier interface {
 	VerifyManifest(ctx context.Context, data []byte) error
 }
@@ -120,14 +121,18 @@ func (c *Client) FetchChannelManifest(ctx context.Context) (*manifest.Manifest, 
 		}
 	}
 
-	var m manifest.Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("decode channel manifest: %w", err)
-	}
-	if err := c.validateManifest(&m); err != nil {
+	payload, _, err := manifest.DecodeEnvelope(data)
+	if err != nil {
 		return nil, err
 	}
-	return &m, nil
+	m, err := manifest.DecodeManifest(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.validateManifest(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (c *Client) Plan(ctx context.Context, m *manifest.Manifest) (*Plan, error) {

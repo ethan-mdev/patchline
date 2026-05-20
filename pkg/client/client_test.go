@@ -251,27 +251,32 @@ func TestFetchRejectsUnsafeManifestPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := manifest.Manifest{
-		FormatVersion:   manifest.FormatVersion,
-		AppID:           "com.example.game",
-		Version:         "1.0.0",
-		Channel:         "beta",
-		ReleaseSequence: 1,
-		PublishedAt:     time.Unix(100, 0).UTC(),
-		Files: []manifest.File{{
-			Path:      "../Game.bin",
-			Size:      5,
-			SHA256:    "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-			ObjectKey: key,
+	// Build a payload that bypasses manifest.Validate by writing the unsafe
+	// path directly into the JSON. The client should reject it on decode.
+	payload, err := json.Marshal(map[string]any{
+		"format_version":   manifest.FormatVersion,
+		"app_id":           "com.example.game",
+		"version":          "1.0.0",
+		"channel":          "beta",
+		"release_sequence": 1,
+		"published_at":     time.Unix(100, 0).UTC(),
+		"files": []map[string]any{{
+			"path":       "../Game.bin",
+			"size":       5,
+			"sha256":     "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+			"object_key": key,
 		}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	data, err := json.Marshal(m)
+	envelope, err := manifest.EncodeEnvelope(payload, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(data)
+		_, _ = w.Write(envelope)
 	}))
 	defer server.Close()
 

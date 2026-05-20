@@ -27,23 +27,21 @@ Applications keep control of their own UI, auth, launch behavior, installation f
 
 Implemented:
 
-- Manifest v1 structs and validation
+- Manifest v1 with detached payload signing (`{payload, signature}` envelope)
 - Nested directory scanning with deterministic ordering
 - SHA-256 hashing and content-addressed object keys
-- Local filesystem storage backend
-- Local publish orchestration
+- Local and S3-compatible storage backends
 - Ed25519 key generation, manifest signing, and verification
-- `patchline keygen`
-- `patchline publish`
-- `patchline apply`
+- `patchline keygen`, `publish`, `apply`, `verify`, `promote`, `rollback`, `gc`, `doctor`
+- YAML configuration with `${VAR}` env interpolation (`patchline.yaml`)
 - Go client primitives for fetching, planning, and applying updates
 - Runnable local apply example under `examples/local_apply`
 
 Not implemented yet:
 
-- S3-compatible storage backend
-- Channel promotion, rollback, garbage collection, and doctor commands
-- Configuration file support
+- `init` and `scan` helper commands
+- Glob include/exclude patterns for build scanning
+- Terraform and GitHub Actions OIDC examples
 
 ## Quick Start
 
@@ -84,7 +82,9 @@ go run ./cmd/patchline apply `
   --install-dir ./install
 ```
 
-Use `--json` on keygen, publish, or apply for machine-readable output. Unsigned manifests are rejected by default; use `--unsigned-dev` only for local development.
+Use `--json` on any command for machine-readable output. Unsigned manifests are rejected by default; use `--unsigned-dev` only for local development.
+
+A `patchline.yaml` next to the CLI can supply defaults for `app_id`, `channel`, `base_url`, `install_dir`, key paths, and backend settings. `${VAR}` placeholders are expanded from the environment, so CI can pass a signing-key path through a secret without writing it to the repo.
 
 There is also a runnable end-to-end example:
 

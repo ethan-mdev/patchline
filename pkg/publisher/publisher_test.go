@@ -2,7 +2,6 @@ package publisher
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,11 +46,11 @@ func TestPublishWritesLocalContentAddressedRelease(t *testing.T) {
 		assertFileExists(t, filepath.Join(outputDir, filepath.FromSlash(file.ObjectKey)))
 	}
 
-	channelManifest := readManifest(t, filepath.Join(outputDir, "channels", "beta", "manifest.json"))
+	channelManifest, channelSig := readEnvelope(t, filepath.Join(outputDir, "channels", "beta", "manifest.json"))
 	if channelManifest.Version != "1.0.0" || channelManifest.ReleaseSequence != 1 {
 		t.Fatalf("channel manifest = %#v", channelManifest)
 	}
-	if channelManifest.Signature == nil {
+	if channelSig == nil {
 		t.Fatal("expected signed channel manifest")
 	}
 }
@@ -118,22 +117,26 @@ func TestPublishRequiresSignerUnlessUnsignedDev(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Manifest.Signature != nil {
+	if result.Signature != nil {
 		t.Fatal("unsigned dev publish should not attach a signature")
 	}
 }
 
-func readManifest(t *testing.T, path string) manifest.Manifest {
+func readEnvelope(t *testing.T, path string) (*manifest.Manifest, *manifest.Signature) {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var m manifest.Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
+	payload, sig, err := manifest.DecodeEnvelope(data)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return m
+	m, err := manifest.DecodeManifest(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m, sig
 }
 
 func assertFileExists(t *testing.T, path string) {

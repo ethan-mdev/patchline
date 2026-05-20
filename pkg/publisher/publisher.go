@@ -1,9 +1,7 @@
 package publisher
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,18 +19,21 @@ type Options struct {
 	Channel         string
 	PublishedAt     time.Time
 	ReleaseSequence int64
-	Signer          ManifestSigner
+	Signer          PayloadSigner
 	UnsignedDev     bool
 }
 
 type Result struct {
-	Manifest        *manifest.Manifest
-	ObjectsUploaded int
-	ObjectsReused   int
+	Manifest        *manifest.Manifest   `json:"manifest"`
+	Signature       *manifest.Signature  `json:"signature,omitempty"`
+	ObjectsUploaded int                  `json:"objects_uploaded"`
+	ObjectsReused   int                  `json:"objects_reused"`
 }
 
-type ManifestSigner interface {
-	SignManifest(ctx context.Context, m *manifest.Manifest) error
+// PayloadSigner produces a detached signature over the canonical payload bytes
+// of a manifest. Implementations must not modify the input bytes.
+type PayloadSigner interface {
+	SignPayload(ctx context.Context, payload []byte) (*manifest.Signature, error)
 }
 
 func Publish(ctx context.Context, backend storage.Backend, buildDir string, opts Options) (*Result, error) {
@@ -108,35 +109,39 @@ func Publish(ctx context.Context, backend storage.Backend, buildDir string, opts
 		PublishedAt:     opts.PublishedAt.UTC(),
 		Files:           files,
 	}
-	if err := manifest.Validate(m); err != nil {
+	payload, err := manifest.EncodePayload(m)
+	if err != nil {
 		return nil, err
 	}
 	if opts.Signer == nil && !opts.UnsignedDev {
 		return nil, errors.New("manifest signer is required")
 	}
+	var sig *manifest.Signature
 	if opts.Signer != nil {
-		if err := opts.Signer.SignManifest(ctx, m); err != nil {
+		sig, err = opts.Signer.SignPayload(ctx, payload)
+		if err != nil {
 			return nil, err
 		}
 	}
 
-	data, err := json.MarshalIndent(m, "", "  ")
+	envelope, err := manifest.EncodeEnvelope(payload, sig)
 	if err != nil {
 		return nil, err
 	}
-	data = append(data, '\n')
+	envelope = append(envelope, '\n')
 
-	if err := backend.PutReleaseManifest(ctx, m.Version, data); err != nil {
+	if err := backend.PutReleaseManifest(ctx, m.Version, envelope); err != nil {
 		return nil, err
 	}
 	if err := verifyObjects(ctx, backend, m); err != nil {
 		return nil, err
 	}
-	if err := backend.PutChannelManifest(ctx, m.Channel, data); err != nil {
+	if err := backend.PutChannelManifest(ctx, m.Channel, envelope); err != nil {
 		return nil, err
 	}
 
 	result.Manifest = m
+	result.Signature = sig
 	return result, nil
 }
 
@@ -161,8 +166,12 @@ func nextReleaseSequence(ctx context.Context, backend storage.Backend, channel s
 		}
 		return 0, err
 	}
-	var current manifest.Manifest
-	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&current); err != nil {
+	payload, _, err := manifest.DecodeEnvelope(data)
+	if err != nil {
+		return 0, fmt.Errorf("decode channel envelope: %w", err)
+	}
+	current, err := manifest.DecodeManifest(payload)
+	if err != nil {
 		return 0, fmt.Errorf("decode channel manifest: %w", err)
 	}
 	return current.ReleaseSequence + 1, nil

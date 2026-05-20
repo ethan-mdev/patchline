@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -65,26 +64,31 @@ func NewVerifier(publicKey ed25519.PublicKey) (*Verifier, error) {
 	return &Verifier{publicKey: publicKey, keyID: KeyID(publicKey)}, nil
 }
 
-func (s *Signer) SignManifest(ctx context.Context, m *manifest.Manifest) error {
+// SignPayload produces an Ed25519 signature over the given payload bytes.
+// Callers are expected to pass the bytes that will be embedded verbatim in a
+// manifest envelope (typically the output of manifest.EncodePayload).
+func (s *Signer) SignPayload(ctx context.Context, payload []byte) (*manifest.Signature, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if s == nil {
-		return errors.New("signer is nil")
-	}
-	payload, err := manifest.CanonicalBytes(m)
-	if err != nil {
-		return err
+		return nil, errors.New("signer is nil")
 	}
 	signature := ed25519.Sign(s.privateKey, payload)
-	m.Signature = &manifest.Signature{
+	return &manifest.Signature{
 		Algorithm: AlgorithmEd25519,
 		KeyID:     s.keyID,
 		Value:     base64.StdEncoding.EncodeToString(signature),
-	}
-	return nil
+	}, nil
 }
 
+func (s *Signer) KeyID() string {
+	return s.keyID
+}
+
+// VerifyManifest decodes envelope bytes and verifies the signature against the
+// literal payload bytes it contains. No re-serialization happens, so unknown
+// future fields in the payload do not break verification.
 func (v *Verifier) VerifyManifest(ctx context.Context, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -93,34 +97,34 @@ func (v *Verifier) VerifyManifest(ctx context.Context, data []byte) error {
 		return errors.New("verifier is nil")
 	}
 
-	var m manifest.Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return fmt.Errorf("decode manifest for verification: %w", err)
+	payload, sig, err := manifest.DecodeEnvelope(data)
+	if err != nil {
+		return err
 	}
-	if m.Signature == nil {
+	if sig == nil {
 		return errors.New("manifest is unsigned")
 	}
-	if m.Signature.Algorithm != AlgorithmEd25519 {
-		return fmt.Errorf("unsupported signature algorithm %q", m.Signature.Algorithm)
+	if sig.Algorithm != AlgorithmEd25519 {
+		return fmt.Errorf("unsupported signature algorithm %q", sig.Algorithm)
 	}
-	if m.Signature.KeyID != "" && m.Signature.KeyID != v.keyID {
-		return fmt.Errorf("manifest key_id %q does not match verifier key_id %q", m.Signature.KeyID, v.keyID)
+	if sig.KeyID != "" && sig.KeyID != v.keyID {
+		return fmt.Errorf("manifest key_id %q does not match verifier key_id %q", sig.KeyID, v.keyID)
 	}
-	signature, err := base64.StdEncoding.DecodeString(m.Signature.Value)
+	signature, err := base64.StdEncoding.DecodeString(sig.Value)
 	if err != nil {
 		return fmt.Errorf("decode signature: %w", err)
 	}
 	if len(signature) != ed25519.SignatureSize {
 		return fmt.Errorf("invalid signature length %d", len(signature))
 	}
-	payload, err := manifest.CanonicalBytes(&m)
-	if err != nil {
-		return err
-	}
 	if !ed25519.Verify(v.publicKey, payload, signature) {
 		return errors.New("manifest signature verification failed")
 	}
 	return nil
+}
+
+func (v *Verifier) KeyID() string {
+	return v.keyID
 }
 
 func EncodePrivateKey(privateKey ed25519.PrivateKey) string {

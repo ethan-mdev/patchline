@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ethan-mdev/patchline/pkg/manifest"
@@ -59,6 +60,17 @@ func (b *Backend) ObjectExists(ctx context.Context, sha256 string) (bool, error)
 	return false, err
 }
 
+func (b *Backend) GetObject(ctx context.Context, sha256 string) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	key, err := manifest.ObjectKeyForHash(sha256)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(filepath.Join(b.root, filepath.FromSlash(key)))
+}
+
 func (b *Backend) DeleteObject(ctx context.Context, sha256 string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -72,6 +84,40 @@ func (b *Backend) DeleteObject(ctx context.Context, sha256 string) error {
 		return nil
 	}
 	return err
+}
+
+func (b *Backend) ListObjects(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	root := filepath.Join(b.root, "objects", "sha256")
+	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	hashes := make([]string, 0)
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		name := entry.Name()
+		if manifest.IsSHA256(name) {
+			hashes = append(hashes, name)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Strings(hashes)
+	return hashes, nil
 }
 
 func (b *Backend) PutReleaseManifest(ctx context.Context, version string, data []byte) error {
@@ -95,6 +141,34 @@ func (b *Backend) GetReleaseManifest(ctx context.Context, version string) ([]byt
 	return os.ReadFile(filepath.Join(b.root, "releases", version, "manifest.json"))
 }
 
+func (b *Backend) ListReleaseVersions(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	root := filepath.Join(b.root, "releases")
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	versions := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, entry.Name(), "manifest.json")); err == nil {
+			versions = append(versions, entry.Name())
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	sort.Strings(versions)
+	return versions, nil
+}
+
 func (b *Backend) PutChannelManifest(ctx context.Context, channel string, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -114,6 +188,34 @@ func (b *Backend) GetChannelManifest(ctx context.Context, channel string) ([]byt
 		return nil, err
 	}
 	return os.ReadFile(filepath.Join(b.root, "channels", channel, "manifest.json"))
+}
+
+func (b *Backend) ListChannels(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	root := filepath.Join(b.root, "channels")
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	channels := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, entry.Name(), "manifest.json")); err == nil {
+			channels = append(channels, entry.Name())
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	sort.Strings(channels)
+	return channels, nil
 }
 
 func (b *Backend) DeleteReleaseManifest(ctx context.Context, version string) error {
